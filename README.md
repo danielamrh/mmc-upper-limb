@@ -18,7 +18,7 @@ webcam**, three questions are still open:
 | Phase | Goal | Status |
 |---|---|---|
 | 0 · Setup | Repo, measures (Alt Murphy definitions) with tests, REHAB24-6 loader | ✅ |
-| 1 · Benchmark | MediaPipe, RTMPose/RTMW + lifting, SAM 3D Body vs. mocap: joint angles and measures (Bland-Altman, ICC) | ⏳ |
+| 1 · Benchmark | MediaPipe, SAM 3D Body (later RTMW + lifting) vs. mocap: joint angles and measures (Bland-Altman, ICC) — pipeline ✅, runs 🚧 | 🚧 |
 | 2 · Biomechanical fit | Arm + trunk kinematic model (constant bone lengths, joint limits, smoothness) vs. raw keypoints | ⏳ |
 | 3 · Robustness | Viewpoint (front / half-profile / profile), occlusion, resolution, frame rate, blur | ⏳ |
 | 4 · Method | Calibrated per-measure uncertainty from a single camera (ensembles, TTA, Laplace around the fit) | ⏳ |
@@ -42,7 +42,13 @@ truth therefore comes from healthy subjects (see limitations).
 ```
 src/mmcul/kinematics.py        canonical joints, trunk frame, elbow flexion, shoulder elevation
 src/mmcul/measures.py          Alt Murphy measures: MT, NMU, peak speed, trunk displacement, ...
-src/mmcul/datasets/rehab24.py  REHAB24-6 download, segmentation, ground-truth loader
+src/mmcul/datasets/rehab24.py  REHAB24-6 download (incl. single files from the zips), segmentation, ground truth
+src/mmcul/pose/                pose model runners (MediaPipe, SAM 3D Body), resumable chunked cache
+src/mmcul/align.py             one similarity transform per video (Umeyama)
+src/mmcul/evaluate.py          per-repetition comparison with ground truth
+src/mmcul/agreement.py         Bland-Altman, ICC(A,1)
+src/mmcul/benchmark.py         phase 1: all cached videos of a model vs. REHAB24-6 ground truth
+tools/run_pose.py              CLI: fetch data, run a pose model on all videos (resumable, parallel)
 tools/build_notebooks.py       source of truth for notebooks/ (edit this, not the .ipynb)
 notebooks/                     Colab notebooks (T4), data and results on Google Drive
 tests/                         pytest suite
@@ -62,7 +68,34 @@ python tools/build_notebooks.py
 ```
 
 Notebooks run in Colab: open them via the badge, they clone this repo and write to
-`MyDrive/mmc_upper_limb/`.
+`MyDrive/mmc_upper_limb/`. MediaPipe runs on the CPU, so it is faster locally in parallel:
+
+```bash
+.venv/Scripts/pip install -e ".[pose,eval,dev]"
+python tools/run_pose.py --root data/rehab24 --cache cache/rehab24 --fetch --model mediapipe-heavy --workers 4
+```
+
+Then copy `cache/rehab24/mediapipe-heavy/` to `MyDrive/mmc_upper_limb/cache/rehab24/`. SAM 3D Body runs in
+notebook 02 (T4, gated checkpoint on Hugging Face).
+
+### Evaluation protocol (phase 1)
+
+* **Subject box** from the projected 2D ground truth (oracle box), so pose accuracy is measured separately
+  from person detection — camera 17 often shows a second person.
+* **Joint angles** (elbow flexion, humerothoracic elevation) are invariant to the camera frame and need no
+  alignment.
+* **Positions, speeds, trunk displacement** are compared after *one* similarity transform per video,
+  fitted with the ground truth (oracle scale and frame). Per-frame alignment would erase the trunk and hand
+  motion that the measures quantify.
+* The trunk point is the shoulder midpoint for all sources (skeletons differ below the neck).
+
+### First observation (one video, not yet a result)
+
+On one Ex1 video, MediaPipe's 2D keypoints are smooth, but its 3D *world landmarks* jump by > 10 cm between
+frames about 200 times in 1300 frames, mostly along the depth axis, and the upper-arm length varies between
+16 and 32 cm. Seen from the side, it confuses the occluded arm with the visible one (wrist visibility ≈ 0.01).
+Joint angles from the front are usable (shoulder elevation ICC 0.82), speed-based measures are not. The full
+benchmark over all Ex1/Ex2 videos will show whether this holds.
 
 ## Limitations
 

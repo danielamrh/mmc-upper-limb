@@ -9,8 +9,10 @@ Huber et al. (2024) and Unger et al. (ICORR 2025):
 * movement time (MT): offset - onset
 * movement units (NMU): a local minimum of hand speed followed by a maximum
   that is more than 20 mm/s higher, with at least 150 ms between counted peaks
-* trunk displacement (TD): maximal distance of the thorax from its position at
-  movement onset
+* trunk displacement (TD): maximal distance of the trunk point from its
+  position at movement onset. Alt Murphy used a sternum marker; to compare
+  sources with different skeletons, `trunk_point="shoulder_mid"` uses the
+  shoulder midpoint instead (as Huber et al. 2024 did)
 
 All positions are in metres and all speeds in m/s.
 """
@@ -79,7 +81,8 @@ class Measures:
 
 
 def compute_measures(pose: Pose, fs: float, side: str = "r", end_effector: str = "wrist",
-                     onset_frac: float = 0.02, cutoff: float = 6.0) -> Measures:
+                     onset_frac: float = 0.02, cutoff: float = 6.0,
+                     trunk_point: str = "thorax") -> Measures:
     """All measures for one movement segment (e.g. one repetition).
 
     The segment should contain the movement plus some rest before and after;
@@ -90,13 +93,17 @@ def compute_measures(pose: Pose, fs: float, side: str = "r", end_effector: str =
     start, end = movement_bounds(v, onset_frac)
     seg = slice(start, end + 1)
     vs = v[seg]
-    thorax = pose["thorax"][seg]
+    if trunk_point == "shoulder_mid":
+        trunk = 0.5 * (pose["r_shoulder"] + pose["l_shoulder"])
+    else:
+        trunk = pose[trunk_point]
+    trunk = trunk[seg]
     return Measures(
         movement_time=(end - start) / fs,
         n_movement_units=n_movement_units(vs, fs),
         peak_speed=float(vs.max()),
         time_to_peak_speed=100.0 * int(np.argmax(vs)) / max(end - start, 1),
-        trunk_displacement=float(np.linalg.norm(thorax - thorax[0], axis=-1).max()),
+        trunk_displacement=float(np.linalg.norm(trunk - trunk[0], axis=-1).max()),
         min_elbow_flexion=float(elbow_flexion(pose, side)[seg].min()),
         max_shoulder_elevation=float(shoulder_elevation(pose, side)[seg].max()),
     )

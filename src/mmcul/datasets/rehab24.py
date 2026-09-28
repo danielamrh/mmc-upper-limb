@@ -4,6 +4,7 @@ Zenodo record 13305826, CC BY-NC 4.0. Layout after `download` + `extract`:
 
     root/Segmentation.csv
     root/3d_joints/Ex{1..6}/{video_id}-{30,120}fps.npy      (T, 26, 4) homogeneous, metres, y up
+    root/2d_joints/Ex{1..6}/{video_id}-c{17,18}-{30,120}fps.npy   (T, 26, 2) projected, pixels
     root/videos/Ex{1..6}/{video_id}-Camera17-30fps.mp4      horizontal camera
     root/videos/Ex{1..6}/{video_id}-Camera18-30fps-transposed.mp4
 
@@ -88,6 +89,63 @@ def extract(zip_path: str | Path, root: str | Path) -> Path:
     return out
 
 
+class _HttpFile(io.RawIOBase):
+    """Read-only seekable file over HTTP range requests."""
+
+    def __init__(self, url: str):
+        with urllib.request.urlopen(urllib.request.Request(url, method="HEAD")) as r:
+            self.size, self.url = int(r.headers["Content-Length"]), r.url
+        self.pos = 0
+
+    def seekable(self) -> bool:
+        return True
+
+    def readable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self.pos
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        self.pos = {0: offset, 1: self.pos + offset, 2: self.size + offset}[whence]
+        return self.pos
+
+    def readinto(self, b) -> int:
+        n = min(len(b), self.size - self.pos)
+        if n <= 0:
+            return 0
+        req = urllib.request.Request(self.url, headers={"Range": f"bytes={self.pos}-{self.pos + n - 1}"})
+        with urllib.request.urlopen(req) as r:
+            data = r.read()
+        b[:len(data)] = data
+        self.pos += len(data)
+        return len(data)
+
+
+def fetch_members(zip_name: str, root: str | Path, exercises: tuple[int, ...],
+                  select=lambda name: True) -> list[Path]:
+    """Download single files from a Zenodo zip without fetching the whole
+    archive, e.g. only the Ex1/Ex2 videos (~1.2 of 2.65 GB). Files are placed as
+    extract() would place them; complete ones are skipped."""
+    out = Path(root) / Path(zip_name).stem
+    prefixes = tuple(f"Ex{e}/" for e in exercises)
+    paths = []
+    with zipfile.ZipFile(io.BufferedReader(_HttpFile(url(zip_name)), buffer_size=1 << 20)) as z:
+        for info in z.infolist():
+            if info.is_dir() or not info.filename.startswith(prefixes) or not select(info.filename):
+                continue
+            dst = out / info.filename
+            paths.append(dst)
+            if dst.exists() and dst.stat().st_size == info.file_size:
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dst.with_name(dst.name + ".part")
+            with z.open(info) as src, open(tmp, "wb") as f:
+                shutil.copyfileobj(src, f, 1 << 22)
+            tmp.replace(dst)
+    return paths
+
+
 @dataclass(frozen=True)
 class Repetition:
     video_id: str
@@ -141,6 +199,16 @@ def read_segmentation(src: str | Path | io.TextIOBase) -> list[Repetition]:
 
 def joints_path(root: str | Path, exercise: int, video_id: str, fps: int = 30) -> Path:
     return Path(root) / "3d_joints" / f"Ex{exercise}" / f"{video_id}-{fps}fps.npy"
+
+
+def joints2d_path(root: str | Path, exercise: int, video_id: str, camera: int, fps: int = 30) -> Path:
+    """Ground-truth joints projected into a camera, (T, 26, 2) pixels."""
+    return Path(root) / "2d_joints" / f"Ex{exercise}" / f"{video_id}-c{camera}-{fps}fps.npy"
+
+
+def image_size(camera: int) -> tuple[int, int]:
+    """(width, height); camera 18 is mounted vertically."""
+    return (1920, 1080) if camera == 17 else (1080, 1920)
 
 
 def video_path(root: str | Path, exercise: int, video_id: str, camera: int) -> Path:

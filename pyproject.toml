@@ -15,8 +15,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# pose model runners (SAM 3D Body additionally needs its repo, see notebook 02)
+pose = [
+    "opencv-python",
+    "mediapipe",
+]
+eval = [
+    "pandas",
+    "matplotlib",
+]
 dev = [
     "pytest",
+    "pandas",
 ]
 
 [tool.setuptools.packages.find]
