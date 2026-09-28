@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+.venv*/
+.pytest_cache/
+
+# Datasets, pose caches and results live on Google Drive, not in git
+data/
+outputs/
+cache/
+*.npy
+*.npz
+*.mp4
+*.zip
+*.pt
+*.pth
+*.safetensors
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
