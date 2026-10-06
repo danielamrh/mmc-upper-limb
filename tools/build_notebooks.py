@@ -191,7 +191,14 @@ sys.path.insert(0, S3DB)
 os.environ["PYTHONPATH"] = f"{S3DB}:{REPO_DIR}/src"
 
 from google.colab import userdata
-os.environ["HF_TOKEN"] = userdata.get("HF_TOKEN")
+try:
+    os.environ["HF_TOKEN"] = userdata.get("HF_TOKEN")
+    print("HF_TOKEN loaded")
+except (userdata.SecretNotFoundError, userdata.NotebookAccessError) as e:
+    raise RuntimeError(
+        "Hugging Face token missing: create a 'Read' token at https://huggingface.co/settings/tokens, "
+        "add it in Colab's Secrets panel (key icon, left sidebar) under the name HF_TOKEN and switch on "
+        "'Notebook access' for this notebook, then re-run this cell.") from e
 """),
         md("## 2 · Data\nVideos are read from the fast local disk. Only the Ex1/Ex2 members are pulled out of the Zenodo zips "
            "(HTTP range requests, ~1.2 GB instead of 2.65 GB)."),
