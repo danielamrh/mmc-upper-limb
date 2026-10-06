@@ -207,33 +207,53 @@ DATA = "/content/data/rehab24"
 CACHE = f"{DRIVE_ROOT}/cache/rehab24"
 !python tools/run_pose.py --root {DATA} --cache {CACHE} --exercises 1 2 --fetch
 """),
-        md("## 3 · Speed test\nOne 60-frame clip per candidate backbone, to decide which one fits the budget "
-           "(~165k frames for Ex1+Ex2, both cameras)."),
+        md("""
+## 3 · Speed and accuracy test
+The same 60-frame clip for every variant: speed, accuracy against mocap (MPJPE after alignment, shoulder
+elevation error) and, for fp16, how far it deviates from fp32 with the same backbone. Decides which variant
+fits the budget (~74k frames for Ex1, ~165k for Ex1+Ex2, both cameras).
+"""),
         code("""
-import time, numpy as np
+import time, gc, torch, numpy as np, pandas as pd
 from mmcul.datasets import rehab24
-from mmcul.pose import make_runner
+from mmcul.pose import make_runner, canonical_pose
+from mmcul.align import align_sequence
+from mmcul.kinematics import shoulder_elevation
+from mmcul.evaluate import ARM_JOINTS
 from mmcul.pose.person import bbox_from_2d
 
+A, B = 300, 360
 video = rehab24.video_path(DATA, 1, "PM_000", 17)
 j2d = np.load(rehab24.joints2d_path(DATA, 1, "PM_000", 17))
-boxes = np.stack([bbox_from_2d(j, *rehab24.image_size(17)) for j in j2d[300:360]])
-for name in ["sam3db-dinov3", "sam3db-vith"]:
+boxes =np.stack([bbox_from_2d(j, *rehab24.image_size(17)) for j in j2d[A:B]])
+gt = {k: v[A:B] for k, v in rehab24.to_pose(rehab24.load_joints(rehab24.joints_path(DATA, 1, "PM_000"))).items()}
+
+results, poses = [], {}
+for name in ["sam3db-vith", "sam3db-vith-fp16", "sam3db-dinov3", "sam3db-dinov3-fp16"]:
     try:
         runner = make_runner(name)
     except Exception as e:  # e.g. access to this checkpoint not granted
-        print(name, "failed:", repr(e)[:200]); continue
-    runner.run(video, 300, 302, boxes, 30.0)  # warm-up
-    t0 = time.time(); seq = runner.run(video, 300, 360, boxes, 30.0)
-    fps = 60 / (time.time() - t0)
-    print(f"{name}: {fps:.2f} fps -> {165_000 / fps / 3600:.1f} h for Ex1+Ex2, both cameras")
-    del runner
-    import torch, gc; gc.collect(); torch.cuda.empty_cache()
+        print(name, "failed:", repr(e)[:300]); continue
+    runner.run(video, A, A + 2, boxes, 30.0)  # warm-up
+    torch.cuda.synchronize(); t0 = time.time()
+    seq = runner.run(video, A, B, boxes, 30.0)
+    torch.cuda.synchronize(); fps = (B - A) / (time.time() - t0)
+    pred = canonical_pose(seq)
+    poses[name] = pred
+    al = align_sequence(pred, gt, ARM_JOINTS)
+    mpjpe = 1000 * np.mean([np.linalg.norm(al[j] - gt[j], axis=1).mean() for j in ARM_JOINTS])
+    elev = np.sqrt(np.mean((shoulder_elevation(pred) - shoulder_elevation(gt)) ** 2))
+    ref = poses.get(name.removesuffix("-fp16")) if name.endswith("-fp16") else None
+    dev = None if ref is None else 1000 * max(np.abs(pred[j] - ref[j]).max() for j in ARM_JOINTS)
+    results.append(dict(model=name, fps=fps, h_ex1=73_600 / fps / 3600, h_ex1_ex2=165_000 / fps / 3600,
+                        mpjpe_mm=mpjpe, rmse_shoulder_elev=elev, max_dev_vs_fp32_mm=dev))
+    del runner; gc.collect(); torch.cuda.empty_cache()
+display(pd.DataFrame(results).round(2))
 """),
         md("## 4 · Run in the background\nThe job runs as a separate process (a long cell output crashed the tab in the "
            "ACT project); the next cell shows its progress. Choose the model from the speed test."),
         code("""
-MODEL = "sam3db-dinov3"
+MODEL = "sam3db-vith-fp16"  # pick from the speed test
 LOG = f"{DRIVE_ROOT}/logs/run_pose_{MODEL}.log"
 os.makedirs(os.path.dirname(LOG), exist_ok=True)
 !nohup python tools/run_pose.py --root {DATA} --cache {CACHE} --model {MODEL} --exercises 1 2 >> {LOG} 2>&1 &

@@ -7,7 +7,8 @@ from pathlib import Path
 from ..kinematics import Pose
 from .cache import PoseSeq, to_pose
 
-MODELS = ("mediapipe-heavy", "mediapipe-full", "sam3db-dinov3", "sam3db-vith")
+MODELS = ("mediapipe-heavy", "mediapipe-full",
+          "sam3db-dinov3", "sam3db-vith", "sam3db-dinov3-fp16", "sam3db-vith-fp16")
 
 
 def canonical_pose(seq: PoseSeq) -> Pose:
@@ -28,5 +29,6 @@ def make_runner(name: str, model_dir: str | Path = "models"):
         return MediaPipeRunner(model_path(model_dir, name.removeprefix("mediapipe-")))
     if name.startswith("sam3db-"):
         from .sam3db_runner import SAM3DBodyRunner
-        return SAM3DBodyRunner(f"facebook/sam-3d-body-{name.removeprefix('sam3db-')}")
+        backbone, _, precision = name.removeprefix("sam3db-").partition("-")
+        return SAM3DBodyRunner(f"facebook/sam-3d-body-{backbone}", fp16=precision == "fp16")
     raise ValueError(f"unknown model {name}, choose from {MODELS}")

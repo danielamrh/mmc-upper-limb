@@ -47,14 +47,42 @@ CANONICAL = {
 }
 
 
+def load_model(hf_repo_id: str, fp16: bool, device: str = "cuda"):
+    """Like sam_3d_body.load_sam_3d_body_hf, but with the backbone precision
+    chosen explicitly. The repo's own fp16 path (TRAIN.USE_FP16) converts only
+    the image encoder; its output is cast back to fp32 before the decoder.
+    float16, not bfloat16: a T4 has no bfloat16 tensor cores."""
+    import os
+
+    import torch
+    from sam_3d_body.build_models import _hf_download
+    from sam_3d_body.models.meta_arch import SAM3DBody
+    from sam_3d_body.utils.checkpoint import load_state_dict
+    from sam_3d_body.utils.config import get_config
+
+    ckpt_path, mhr_path = _hf_download(hf_repo_id)
+    cfg = get_config(os.path.join(os.path.dirname(ckpt_path), "model_config.yaml"))
+    print(f"{hf_repo_id}: config USE_FP16={cfg.TRAIN.USE_FP16}, "
+          f"FP16_TYPE={cfg.TRAIN.get('FP16_TYPE', 'float16')}, image size {cfg.MODEL.IMAGE_SIZE}; using fp16={fp16}")
+    cfg.defrost()
+    cfg.MODEL.MHR_HEAD.MHR_MODEL_PATH = mhr_path
+    cfg.TRAIN.USE_FP16 = fp16
+    cfg.TRAIN.FP16_TYPE = "float16"
+    cfg.freeze()
+    model = SAM3DBody(cfg)
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    load_state_dict(model, ckpt.get("state_dict", ckpt), strict=False)
+    return model.to(device).eval(), cfg
+
+
 class SAM3DBodyRunner:
-    def __init__(self, hf_repo_id: str = "facebook/sam-3d-body-dinov3", device: str = "cuda",
-                 inference_type: str = "body"):
-        from sam_3d_body import SAM3DBodyEstimator, load_sam_3d_body_hf
-        model, cfg = load_sam_3d_body_hf(hf_repo_id, device=device)
+    def __init__(self, hf_repo_id: str = "facebook/sam-3d-body-dinov3", fp16: bool = False,
+                 device: str = "cuda", inference_type: str = "body"):
+        from sam_3d_body import SAM3DBodyEstimator
+        model, cfg = load_model(hf_repo_id, fp16, device)
         self.estimator = SAM3DBodyEstimator(sam_3d_body_model=model, model_cfg=cfg)
         self.inference_type = inference_type
-        self.name = "sam3db-" + hf_repo_id.rsplit("-", 1)[-1]
+        self.name = "sam3db-" + hf_repo_id.rsplit("-", 1)[-1] + ("-fp16" if fp16 else "")
 
     def run(self, video: str | Path, start: int, stop: int, boxes: np.ndarray, fps: float) -> PoseSeq:
         seq = empty(stop - start, NAMES, "camera", self.name, fps)
