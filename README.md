@@ -19,7 +19,7 @@ webcam**, three questions are still open:
 |---|---|---|
 | 0 · Setup | Repo, measures (Alt Murphy definitions) with tests, REHAB24-6 loader | ✅ |
 | 1 · Benchmark | MediaPipe, SAM 3D Body (later RTMW + lifting) vs. mocap: joint angles and measures (Bland-Altman, ICC) — pipeline ✅, runs 🚧 | 🚧 |
-| 2 · Biomechanical fit | Arm + trunk kinematic model (constant bone lengths, joint limits, smoothness) vs. raw keypoints | ⏳ |
+| 2 · Biomechanical fit | Arm + trunk kinematic model (constant bone lengths, joint limits, smoothness) vs. raw keypoints — model + tuning ✅, evaluation 🚧 | 🚧 |
 | 3 · Robustness | Viewpoint (front / half-profile / profile), occlusion, resolution, frame rate, blur | ⏳ |
 | 4 · Method | Calibrated per-measure uncertainty from a single camera (ensembles, TTA, Laplace around the fit) | ⏳ |
 | 5 · Application | Compensation on real stroke data (Toronto Rehab), own webcam drinking-task demo | ⏳ |
@@ -49,6 +49,9 @@ src/mmcul/evaluate.py          per-repetition comparison with ground truth
 src/mmcul/agreement.py         Bland-Altman, ICC(A,1)
 src/mmcul/benchmark.py         phase 1: all cached videos of a model vs. REHAB24-6 ground truth
 tools/run_pose.py              CLI: fetch data, run a pose model on all videos (resumable, parallel)
+src/mmcul/fit.py               phase 2: kinematic chain fitted to keypoints (PyTorch, L-BFGS)
+tools/tune_fit.py              fit hyperparameters, chosen on tuning subjects 4 + 5 only
+tools/run_fit.py               CLI: fit all cached sequences of a model -> "<model>+fit"
 tools/build_notebooks.py       source of truth for notebooks/ (edit this, not the .ipynb)
 notebooks/                     Colab notebooks (T4), data and results on Google Drive
 tests/                         pytest suite

@@ -12,16 +12,19 @@ from .pose import canonical_pose
 from .pose.cache import PoseSeq
 
 FPS = 30.0
+# subjects used to choose the fit hyperparameters (tools/tune_fit.py); excluded from reported results
+TUNING_PERSONS = (4, 5)
 
 
 def evaluate_model(root: str | Path, cache: str | Path, model: str, exercises=(1, 2),
-                   cameras=(17, 18), align_scale: bool = True) -> list[dict]:
+                   cameras=(17, 18), align_scale: bool = True, exclude_persons=()) -> list[dict]:
     """One row per (repetition, camera) with metadata, ground-truth and
     estimated measures and pose errors. Videos without a cache file are skipped
-    (and listed in the `missing` attribute of the returned list)."""
+    (and listed in the `missing` attribute of the returned list). Pass
+    exclude_persons=TUNING_PERSONS for reported results."""
     root, cache = Path(root), Path(cache)
     reps = [r for r in rehab24.read_segmentation(root / "Segmentation.csv")
-            if r.exercise in exercises and not r.mocap_erroneous]
+            if r.exercise in exercises and not r.mocap_erroneous and r.person not in exclude_persons]
     by_video: dict[tuple[int, str], list] = {}
     for r in reps:
         by_video.setdefault((r.exercise, r.video_id), []).append(r)

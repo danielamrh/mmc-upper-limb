@@ -283,7 +283,7 @@ after one similarity alignment per video (oracle scale), split by viewpoint.
 !pip install -q -e ".[eval]"
 from pathlib import Path
 import pandas as pd, numpy as np, matplotlib.pyplot as plt
-from mmcul.benchmark import evaluate_model, agreement_table
+from mmcul.benchmark import evaluate_model, agreement_table, TUNING_PERSONS
 from mmcul.datasets import rehab24
 
 DATA = Path("/content/data/rehab24")
@@ -299,7 +299,8 @@ print("cached models:", MODELS)
         code("""
 frames = []
 for m in MODELS:
-    rows = evaluate_model(DATA, CACHE, m)
+    # persons used to tune the biomechanical fit are excluded for every model
+    rows = evaluate_model(DATA, CACHE, m, exclude_persons=TUNING_PERSONS)
     print(f"{m}: {len(rows)} repetition x camera rows, {len(rows.missing)} videos not cached yet")
     frames.append(pd.DataFrame(rows))
 df = pd.concat(frames, ignore_index=True)

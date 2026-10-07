@@ -24,6 +24,10 @@ eval = [
     "pandas",
     "matplotlib",
 ]
+# biomechanical fit (mmcul.fit); CPU wheels are enough
+fit = [
+    "torch",
+]
 dev = [
     "pytest",
     "pandas",
