@@ -10,7 +10,10 @@ Output: <cache>/<model>/Ex<e>/<video_id>-c<camera>.npz (see mmcul.pose.cache).
 from __future__ import annotations
 
 import argparse
+import atexit
 import multiprocessing as mp
+import os
+import socket
 import sys
 import time
 from pathlib import Path
@@ -68,6 +71,42 @@ def run_job(args) -> str:
     return f"{out.name}: {n} frames in {time.time() - t0:.0f} s, {seq.valid.mean():.1%} valid"
 
 
+def acquire_lock(path: Path) -> None:
+    """One run per cache/model: a second process on the same machine would
+    compute the same chunks and halve the GPU throughput of both."""
+    host = socket.gethostname()
+    if path.exists():
+        other_host, _, other_pid = path.read_text().partition(":")
+        alive = other_host == host and other_pid.isdigit() and _pid_alive(int(other_pid))
+        if alive:
+            sys.exit(f"another run_pose.py (pid {other_pid}) is already working on {path.parent} - "
+                     f"stop it first (pkill -f run_pose.py) or wait for it")
+        print(f"taking over stale lock from {other_host}:{other_pid}", flush=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{host}:{os.getpid()}")
+    atexit.register(lambda: path.unlink(missing_ok=True))
+
+
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":  # os.kill(pid, 0) would terminate the process on Windows
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        k32.GetExitCodeProcess(handle, ctypes.byref(code))
+        k32.CloseHandle(handle)
+        return code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        return True
+    return True
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", type=Path, required=True, help="REHAB24-6 data directory")
@@ -88,6 +127,7 @@ def main() -> None:
         return
     if a.workers > 1 and not a.model.startswith("mediapipe"):
         ap.error("--workers > 1 only for MediaPipe (one GPU model per process would not fit)")
+    acquire_lock(a.cache / a.model / ".run.lock")
     todo = [(j, a.root, a.cache, a.model, a.model_dir, a.chunk) for j in jobs(a.root, exercises, a.cameras)]
     print(f"{len(todo)} videos · {a.model}", flush=True)
     if a.model.startswith("mediapipe"):

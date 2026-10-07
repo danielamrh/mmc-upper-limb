@@ -17,6 +17,7 @@ npz fields:
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,7 +48,7 @@ class PoseSeq:
     def save(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.stem + ".tmp.npz")
+        tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp.npz")  # unique per process
         np.savez_compressed(tmp, kp3d=self.kp3d, kp2d=self.kp2d, conf=self.conf, valid=self.valid,
                             names=np.array(self.names), frame=self.frame, model=self.model, fps=self.fps)
         tmp.replace(path)
@@ -86,20 +87,36 @@ def run_chunked(out_path: str | Path, n_frames: int, run_chunk: Callable[[int, i
     for start in range(0, n_frames, chunk):
         stop = min(start + chunk, n_frames)
         p = part_dir / f"{start:07d}.npz"
-        if not p.exists():
+        part = _load_part(p, stop - start, log)
+        if part is None:
             t0 = time.time()
-            seq = run_chunk(start, stop)
-            assert len(seq) == stop - start, (len(seq), start, stop)
-            seq.save(p)
+            part = run_chunk(start, stop)
+            assert len(part) == stop - start, (len(part), start, stop)
+            part.save(p)
             log(f"{out_path.name}: frames {start}-{stop} of {n_frames} "
-                f"({(stop - start) / max(time.time() - t0, 1e-6):.1f} fps, {seq.valid.mean():.0%} valid)")
-        parts.append(PoseSeq.load(p))
+                f"({(stop - start) / max(time.time() - t0, 1e-6):.1f} fps, {part.valid.mean():.0%} valid)")
+        parts.append(part)
     seq = PoseSeq.concat(parts)
     seq.save(out_path)
     for p in part_dir.iterdir():
         p.unlink()
     part_dir.rmdir()
     return seq
+
+
+def _load_part(p: Path, n: int, log: Callable[[str], None]) -> PoseSeq | None:
+    """A finished chunk, or None if missing or unreadable (e.g. a write cut off
+    by a disconnect); unreadable chunks are deleted so they are recomputed."""
+    if not p.exists():
+        return None
+    try:
+        part = PoseSeq.load(p)
+        if len(part) == n:
+            return part
+    except Exception as e:  # noqa: BLE001 - any read error means: recompute
+        log(f"{p}: unreadable ({e!r}), recomputing")
+    p.unlink(missing_ok=True)
+    return None
 
 
 def to_pose(seq: PoseSeq, mapping: dict[str, str | Iterable[str]]) -> Pose:

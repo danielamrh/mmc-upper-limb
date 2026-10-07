@@ -66,6 +66,25 @@ def test_run_chunked_resumes(tmp_path):
     np.testing.assert_allclose(pose["mid"][:, 0], np.arange(10))
 
 
+def test_run_chunked_recomputes_corrupt_chunk(tmp_path):
+    names = ("a",)
+    calls = []
+
+    def run_chunk(a, b):
+        calls.append((a, b))
+        seq = empty(b - a, names, "camera", "m", FS)
+        seq.valid[:] = True
+        return seq
+
+    part_dir = tmp_path / "v.parts"
+    part_dir.mkdir()
+    run_chunk(0, 4).save(part_dir / "0000000.npz")
+    (part_dir / "0000004.npz").write_bytes(b"truncated")  # write cut off by a disconnect
+    calls.clear()
+    seq = run_chunked(tmp_path / "v.npz", 8, run_chunk, chunk=4, log=lambda s: None)
+    assert calls == [(4, 8)] and len(seq) == 8
+
+
 def test_person_selection():
     box = bbox_from_2d(np.array([[100, 100], [200, 400]], float), 1920, 1080)
     np.testing.assert_allclose(box, [85, 55, 215, 445])

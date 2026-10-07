@@ -256,8 +256,15 @@ display(pd.DataFrame(results).round(2))
 MODEL = "sam3db-vith-fp16"  # pick from the speed test
 LOG = f"{DRIVE_ROOT}/logs/run_pose_{MODEL}.log"
 os.makedirs(os.path.dirname(LOG), exist_ok=True)
-!nohup python tools/run_pose.py --root {DATA} --cache {CACHE} --model {MODEL} --exercises 1 2 >> {LOG} 2>&1 &
-print("started, log:", LOG)
+running = !pgrep -af "tools/run_pose.py" | grep -v pgrep
+if running:
+    print("already running - not starting a second copy (it would halve the speed of both):")
+    print("
+".join(running))
+    print("to restart: !pkill -f run_pose.py, then run this cell again")
+else:
+    !nohup python tools/run_pose.py --root {DATA} --cache {CACHE} --model {MODEL} --exercises 1 2 >> {LOG} 2>&1 &
+    print("started, log:", LOG)
 """),
         code("""
 !tail -n 5 {LOG}
